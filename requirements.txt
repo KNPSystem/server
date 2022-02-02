@@ -1,0 +1,22 @@
+flask
+flask_cors
+flask_restful
+flask_sqlalchemy
+flask_login
+flask_marshmallow
+marshmallow-sqlalchemy
+okta_jwt_verifier
+requests
+neo4j
+elasticsearch
+marshmallow-sqlalchemy
+alembic
+fsspec
+
+# Packages used by examples
+pandas
+sklearn
+plotly
+psutil
+kaleido
+boto3
