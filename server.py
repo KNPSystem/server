@@ -72,6 +72,7 @@ NONCE = 'SampleNonceKNPS'
 NEO4J_HOST = os.getenv('NEO4J_HOST', 'localhost')
 NEO4J_PORT = int(os.getenv('NEO4J_PORT', '7687'))
 KNPS_SERVER_HOST = os.getenv('KNPS_SERVER_HOST', 'localhost')
+KNPS_FLASK_HOST = os.getenv('KNPS_FLASK_HOST', 'localhost')
 KNPS_SERVER_PORT = int(os.getenv('KNPS_SERVER_PORT', '5000'))
 
 loop = asyncio.get_event_loop()
@@ -2186,4 +2187,4 @@ if __name__ == '__main__':
     GDB = GraphDB("bolt://{}:{}".format(NEO4J_HOST, NEO4J_PORT), "neo4j", "password")
     #db.create_all()
 
-    app.run(debug=True, host='localhost', port=KNPS_SERVER_PORT)
+    app.run(debug=True, host=KNPS_FLASK_HOST, port=KNPS_SERVER_PORT)
