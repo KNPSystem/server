@@ -907,8 +907,8 @@ class GraphDB:
         rawTree = {}
         root, rootDatasets, fileInputCount, cloneCount, rawBytes = getQueryNode(rootUuid)
         rootContentStruct = self.getBytecontentStruct(rawBytes["md5hash"])
-        if root['optional_filetype'] == 'text/csv':
-            rootContentStruct['content'] = base64.b64decode(rootContentStruct['content']).decode(encoding='utf-8')
+        if root['optional_filetype'] == 'text/csv' and 'content' in rootContentStruct:
+           rootContentStruct['content'] = base64.b64decode(rootContentStruct['content']).decode(encoding='utf-8')
 
         rawTree[root["uuid"]] = {"name": "This File",
                            "kind": "FileObservation",
