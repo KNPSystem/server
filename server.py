@@ -39,6 +39,8 @@ from subgraph_classifier import apply_classifier
 
 from elasticsearch import Elasticsearch
 
+import threading
+
 # This is just a temporary thing for demos so we can all run off diferent indexes on the elsasticsearch server
 machine_id = uuid.UUID(int=uuid.getnode())
 
@@ -77,6 +79,7 @@ KNPS_SERVER_PORT = int(os.getenv('KNPS_SERVER_PORT', '5000'))
 
 loop = asyncio.get_event_loop()
 
+global_filenames_updating = {}
 
 ###########################################
 # Login/logout helper functions
@@ -1175,7 +1178,12 @@ class GraphDB:
             txStr += " CREATE (a)-[r3:NextVersion]->(a2) "
             txStr += "RETURN id(a2)"
 
-
+            if obs["file_name"] not in global_filenames_updating:
+                global_filenames_updating[obs["file_name"]] = threading.Lock()
+            while True:
+                if global_filenames_updating[obs["file_name"]].acquire(blocking = False):
+                    break
+                time.sleep(0.1)
             result = tx.run(txStr,
                             filename = obs["file_name"],
                             username = obs["username"],
@@ -1235,7 +1243,7 @@ class GraphDB:
                                 install_id = obs["install_id"],
                                 knps_version = obs["knps_version"],
                                 hostname = obs["hostname"])
-
+            global_filenames_updating[obs["file_name"]].release()
 
 
     #
@@ -1283,6 +1291,7 @@ class GraphDB:
                         threadid = threadid,
                         out_md5s = [x[1] for x in process['output_files']],
                         out_filenames = [x[0] for x in process['output_files']],
+                        out_modified_times = [x["modified"] for x in process["file_data"].values()],
                         in_md5s = [x[1] for x in process['input_files']],
                         in_filenames = [x[0] for x in process['input_files']],
                         name = process["name"],
