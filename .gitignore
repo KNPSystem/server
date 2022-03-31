@@ -160,3 +160,4 @@ data
 aws_keys.json
 series_ids.pickle
 last_processed_index.json
+local_env.*

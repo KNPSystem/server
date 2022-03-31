@@ -35,6 +35,7 @@ import os
 from pathlib import Path
 import requests
 import uuid
+import hashlib
 from subgraph_classifier import apply_classifier
 
 from elasticsearch import Elasticsearch
@@ -74,6 +75,8 @@ NEO4J_PORT = int(os.getenv('NEO4J_PORT', '7687'))
 KNPS_SERVER_HOST = os.getenv('KNPS_SERVER_HOST', 'localhost')
 KNPS_FLASK_HOST = os.getenv('KNPS_FLASK_HOST', 'localhost')
 KNPS_SERVER_PORT = int(os.getenv('KNPS_SERVER_PORT', '5000'))
+
+KNPS_SECRET_SALT = os.getenv('KNPS_SECRET_SALT', '')
 
 loop = asyncio.get_event_loop()
 
@@ -648,12 +651,12 @@ class GraphDB:
                             modified=time.time(),
                             commentStr = comment)
 
-    
+
     #comments is a tuple of filename (fullpath), comment
     def addCommentsInBulk(self, comments):
         with self.driver.session() as session:
             result = session.write_transaction(self._create_comments, comments)
-    
+
     @staticmethod
     def _create_dataset_from_filename(tx, filenames):
         res = []
@@ -674,8 +677,8 @@ class GraphDB:
         with self.driver.session() as session:
             result = session.write_transaction(self._create_dataset_from_filename, filenames)
             return result
-        
-    
+
+
     def addSubgraph(self, nodeId, username, email, subgraphNodeUUIDs, subgraphRootName, label, fullRootFileName, subgraphRootId, subgraphNodesInfo):
         with self.driver.session() as session:
             result = session.run("MATCH (a {uuid: $nodeId}) "
@@ -699,7 +702,7 @@ class GraphDB:
                                  subgraphNodesInfo=subgraphNodesInfo
                                  )
             return [(x[0],x[1]) for x in result]
-    
+
     def updateSubgraph(self, nodeId, label, newLabel, username, email, subgraphNodeUUIDs):
         with self.driver.session() as session:
             result = session.run("MATCH (a {uuid: $nodeId})-[:HasSubgraph]->(b:Subgraph{subgraphNodeUUIDs: $subgraphNodeUUIDs}) "
@@ -721,8 +724,8 @@ class GraphDB:
                                  ownerEmail = email,
                                  modified=time.time())
             return result
-    
-    
+
+
     def getAllSubgraphs(self):
         with self.driver.session() as session:
             results = session.run("MATCH (a:ObservedFile)-[r:HasSubgraph]->(b:Subgraph) "
@@ -735,9 +738,9 @@ class GraphDB:
                 labels.add(node['label'])
                 emails.add(node['ownerEmail'])
                 node['modified'] = str(datetime.datetime.fromtimestamp(node['modified']))
-            
+
             return {"subgraphs": ret, "labels": list(labels), "emails": list(emails)}
-    
+
     def getAllOperators(self):
         with self.driver.session() as session:
             results = session.run("MATCH (a:Operator) "
@@ -745,7 +748,7 @@ class GraphDB:
                                   "ORDER BY a.label DESC ")
             ret = {x[0]['label']: x[0]['uuid'] for x in results}
             return {"labels": ret}
-    
+
     def getSubgraphsForOperator(self, uuid):
         with self.driver.session() as session:
             results = session.run("MATCH (a:Operator {uuid: $uuid})-[:OperatorLabel]-(b:Subgraph) "
@@ -773,7 +776,7 @@ class GraphDB:
                 final[node['subgraphRootName']].setdefault(node['label'], {})
                 final[node['subgraphRootName']][node['label']][node['uuid']] = node
             return final
-    
+
 
     def getSubgraphNode(self, uuid, kind):
         with self.driver.session() as session:
@@ -863,7 +866,7 @@ class GraphDB:
     #
     def getFileObservationHistoryGraphByPath(self, path, username, stepsBack=3):
         pass
-    
+
     def getFileObservationHistoryGraphByUuid(self, rootUuid, stepsBack=5):
         def getQueryNode(u):
             with self.driver.session() as session:
@@ -886,20 +889,20 @@ class GraphDB:
                 WITH "process" as kind
                 MATCH (parent:ObservedFile {uuid: $uuid})<-[rout1:HasOutput]-(child:ObservedProcess)-[rin1:HasInput]->(gchild:ObservedFile)
                 WHERE parent <> gchild
-                OPTIONAL MATCH (gchild)-[rBytes:Contains]->(rawBytes:ByteSet)                
+                OPTIONAL MATCH (gchild)-[rBytes:Contains]->(rawBytes:ByteSet)
                 OPTIONAL MATCH (gchild)-[r1:Contains]->(b:ByteSet)<-[r2:Contains]-(gchildDataSet:Dataset)
                 OPTIONAL MATCH (gchild)<-[rIn:HasInput]-(p:ObservedProcess)
                 OPTIONAL MATCH (gchild)-[rC1:Contains]->(bClone:ByteSet)<-[rC2:Contains]-(clone:ObservedFile)
-                WHERE gchild <> clone              
+                WHERE gchild <> clone
                 return properties(parent) as parent, properties(child) as child, properties(gchild) as gchild, kind, collect(properties(gchildDataSet)) as fileDataSets, count(p) as fileInputCount, count(clone) as cloneCount, properties(rawBytes) as rawBytes
                 UNION
                 WITH null as gchild, "share" as kind
                 match (parent:ObservedFile {uuid: $uuid})-[:LikelySource]->(child:ObservedFile)
-                OPTIONAL MATCH (child)-[rBytes2:Contains]->(rawBytes2:ByteSet)                
+                OPTIONAL MATCH (child)-[rBytes2:Contains]->(rawBytes2:ByteSet)
                 OPTIONAL MATCH (child)-[r3:Contains]->(b:ByteSet)<-[r4:Contains]-(childDataSet:Dataset)
-                OPTIONAL MATCH (child)<-[rIn:HasInput]-(p:ObservedProcess)                                
+                OPTIONAL MATCH (child)<-[rIn:HasInput]-(p:ObservedProcess)
                 OPTIONAL MATCH (child)-[rC1:Contains]->(bClone:ByteSet)<-[rC2:Contains]-(clone:ObservedFile)
-                WHERE child <> clone              
+                WHERE child <> clone
                 return properties(parent) as parent, properties(child) as child, properties(gchild) as gchild, kind, collect(properties(childDataSet)) as fileDataSets, count(p) as fileInputCount, count(clone) as cloneCount, properties(rawBytes2) as rawBytes""",
                                      uuid=uuid)
                 return [(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7]) for x in result]
@@ -912,7 +915,7 @@ class GraphDB:
 
         rawTree[root["uuid"]] = {"name": "This File",
                            "kind": "FileObservation",
-                           "rootNode": "True",                                 
+                           "rootNode": "True",
                            "owner": root["username"],
                            "filetype": root["optional_filetype"],
                            "md5hash": rawBytes["md5hash"],
@@ -926,7 +929,7 @@ class GraphDB:
                            "cloneCount": cloneCount,
                            "childrenPointers": set(),
                            "depth": 0}
-        
+
 
         def expandNode(uuid, tree, depth):
             fringe = set()
@@ -935,11 +938,11 @@ class GraphDB:
                     print("Detected share!")
                     shareId = node["uuid"] + "/" + child["uuid"]
                     tree[node["uuid"]]["childrenPointers"].add(shareId)
-                    
+
                     tree.setdefault(shareId, {
                         "name": "Likely sharing event",
                         "kind": "SharingEvent",
-                        "rootNode": "False",                        
+                        "rootNode": "False",
                         "receiver": root["username"],
                         "source": child["username"],
                         "receivedOnOrBefore": child["sync_time"],
@@ -954,9 +957,9 @@ class GraphDB:
                     tree.setdefault(child["uuid"], {
                         "name": "Data File",
                         "kind": "FileObservation",
-                        "rootNode": "False",                                                                        
+                        "rootNode": "False",
                         "owner": child["username"],
-                        "filetype": child["optional_filetype"],                        
+                        "filetype": child["optional_filetype"],
                         "md5hash": rawBytes["md5hash"],
                         "content": childContentStruct,
                         "uuid": child["uuid"],
@@ -972,12 +975,12 @@ class GraphDB:
 
                     tree.get(shareId)["childrenPointers"].add(child["uuid"])
                     fringe.add(child["uuid"])
-                    
+
                 elif kind == "process":
                     tree.setdefault(child["uuid"], {
                         "name": child["name"],
                         "kind": "ProcessObservation",
-                        "rootNode": "False",                                                
+                        "rootNode": "False",
                         "owner": child["username"],
                         "startedOn": child["start_time"],
                         "childrenPointers":set(),
@@ -988,21 +991,21 @@ class GraphDB:
                     gchildContentStruct = self.getBytecontentStruct(rawBytes["md5hash"])
                     if gchild['optional_filetype'] == 'text/csv':
                         gchildContentStruct['content'] = base64.b64decode(gchildContentStruct['content']).decode(encoding='utf-8')
-                        
+
                     tree.setdefault(gchild["uuid"], {
                         "name": "Data File",
                         "kind": "FileObservation",
                         "rootNode": "False",
                         "owner": gchild["username"],
                         "filetype": gchild["optional_filetype"],
-                        "content": gchildContentStruct,                        
+                        "content": gchildContentStruct,
                         "uuid": gchild["uuid"],
-                        "md5hash": rawBytes["md5hash"],                        
+                        "md5hash": rawBytes["md5hash"],
                         "longName": gchild["filename"],
                         "shortName": gchild["filename"][gchild["filename"].rfind("/")+1:],
                         "curatedSets": [{"title":x["title"],
                                          "uuid":x["uuid"]} for x in dataSets],
-                        "cloneCount": cloneCount,                        
+                        "cloneCount": cloneCount,
                         "fileInputCount": fileInputCount,
                         "childrenPointers": set(),
                         "depth": depth+1
@@ -1041,7 +1044,7 @@ class GraphDB:
         #    print("K", k, "V", v)
         r = cookRawNode(root["uuid"], rawTree)
         return r
-        
+
 
     def getByteSetHistoryGraph(self, md5):
         pass
@@ -1098,7 +1101,7 @@ class GraphDB:
     # Get a content profile object
     #
     def getBytecontentStruct(self, md5):
-        result = db.query(BlobObject).filter_by(id=md5).first()        
+        result = db.query(BlobObject).filter_by(id=md5).first()
         if result is None:
             return {"hasContent": False}
         else:
@@ -1151,7 +1154,7 @@ class GraphDB:
             for k, v in obs.get("optionalItems", {}).items():
                 if k == "content":
                     continue
-                
+
                 if k in ["column_hashes", "shingles"]:
                     txStr += ", {}: {}".format("optional_" + k, json.dumps(v))
                 else:
@@ -1163,7 +1166,7 @@ class GraphDB:
             for k, v in obs.get("optionalItems", {}).items():
                 if k == "content":
                     continue
-                
+
                 if k in ["column_hashes", "shingles"]:
                     txStr += ", {}: {}".format("optional_" + k, json.dumps(v))
                 else:
@@ -1196,7 +1199,7 @@ class GraphDB:
                 for k, v in obs.get("optionalItems", {}).items():
                     if k == "content":
                         continue
-                    
+
                     if k in ["column_hashes", "shingles"]:
                         txStr += ", {}: {}".format("optional_" + k, json.dumps(v))
                     else:
@@ -1209,7 +1212,7 @@ class GraphDB:
                 for k, v in obs.get("optionalItems", {}).items():
                     if k == "content":
                         continue
-                    
+
                     if k in ["column_hashes", "shingles"]:
                         txStr += ", {}: {}".format("optional_" + k, json.dumps(v))
                     else:
@@ -1248,7 +1251,7 @@ class GraphDB:
         updateTime = datetime.datetime.strptime(tStr[0:tStr.rfind(".")], "%Y-%m-%d %H:%M:%S")
         threadHourIdentifier = updateTime.strftime("%Y-%m-%d %H")
 
-        
+
         txStr = """MATCH (f_out: ObservedFile {username: $username})-[r_out:Contains]->(b_out:ByteSet)
             WHERE b_out.md5hash IN $out_md5s AND f_out.filename IN $out_filenames
             MERGE (p:ObservedProcess {username: $username, threadid: $threadid, threadhour: $threadhour, hostname: $hostname})
@@ -1856,7 +1859,7 @@ def show_knownlocationdata(fileid):
 
     kl["descendentData"] = GDB.getFileObservationHistoryGraphByUuid(fileid)
     print("Descendenats", len(kl["descendentData"]))
-          
+
     kl["datasets"] = GDB.getDatasetInfoByContent(md5hash)
     kl['subgraphs'] = GDB.getSubgraphsForNode(fileid)
 
@@ -2057,11 +2060,11 @@ def add_subgraph():
     incomingReq = json.loads(request.get_json())
     if request.method == 'PUT':
         arguments = [(GDB.getSubgraphNode(obs['uuid'], obs['kind']), obs['depth']) for obs in incomingReq['selectedNodes']]
-        # send to the classifier in addition to list of props for observed files and bytesets, 
+        # send to the classifier in addition to list of props for observed files and bytesets,
         # we also want the content of each file in there as well
         for node, _ in arguments:
             # we can only do classification tasks for those the upload bytes, can do local files as well by using the full paths
-            # but getting the contents from db is preferred 
+            # but getting the contents from db is preferred
             md5 = node['ByteSet']['md5hash']
             content_struct = GDB.getBytecontentStruct(md5)
             if not content_struct['hasContent']:
@@ -2073,10 +2076,10 @@ def add_subgraph():
             else:
                 content = content_struct['content']
             node['content'] = content
-            
+
         subgraph_root_id = incomingReq['subgraphRootId']
         labels = apply_classifier(arguments, subgraph_root_id)
-        return json.dumps(labels) 
+        return json.dumps(labels)
     elif request.method == 'POST':
         result = GDB.addSubgraph(incomingReq['uuid'], incomingReq['username'], incomingReq['email'], incomingReq['subgraphNodeUUIDs'], incomingReq['subgraphRootName'], incomingReq['label'], incomingReq['rootNodeFileName'], incomingReq['subgraphRootId'], incomingReq['subgraphNodesInfo'])
     else:
@@ -2181,7 +2184,58 @@ def sync_process(username):
     # show the user profile for that user
     return json.dumps(username)
 
+def make_bearer_token(username):
+    if not KNPS_SECRET_SALT:
+        raise Exception("Missing Salt")
+    return hashlib.md5(f'{username}{KNPS_SECRET_SALT}'.encode()).hexdigest()
 
+def validate_bearer_token(username, token):
+    print(make_bearer_token(username))
+    if token == make_bearer_token(username):
+        return True
+
+    return False
+
+
+@app.route('/get_log_token', methods=['POST'])
+def get_log_token():
+    username = request.form.get('username', None)
+    if username:
+        token = make_bearer_token(username)
+    else:
+        token = None
+    return json.dumps({'token': token})
+
+import logging
+KNPS_LOG_FILE = 'knps_log.log'
+LOG_FORMAT = '%(message)s'
+knps_logger = logging.getLogger("knps_log")
+knps_logger.setLevel(logging.INFO)
+knps_logger_file_handler = logging.FileHandler(KNPS_LOG_FILE)
+knps_logger_file_handler.setLevel(logging.INFO)
+knps_logger_file_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+knps_logger.addHandler(knps_logger_file_handler)
+
+@app.route('/log', methods=['POST'])
+def log():
+    token = None
+    bearer = request.headers.get('Authorization', None)    # Bearer YourTokenHere
+    if bearer:
+        bearer = bearer.split()
+        if len(bearer) == 2 and bearer[0] == 'Bearer':
+            token = bearer[1]
+
+    log_data = json.loads(request.data.decode())
+    username = log_data.get('username', None)
+    if not username:
+        metadata = log_data.get('metadata', {'username': None})
+        username = metadata['username']
+
+    if not validate_bearer_token(username, token):
+        return {'status': f'bad auth token for user {username}'}, 401
+
+    knps_logger.info(json.dumps(log_data))
+    return json.dumps({'status': 'success'})
 
 if __name__ == '__main__':
     GDB = GraphDB("bolt://{}:{}".format(NEO4J_HOST, NEO4J_PORT), "neo4j", "password")
