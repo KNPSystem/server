@@ -660,15 +660,16 @@ class GraphDB:
     @staticmethod
     def _create_dataset_from_filename(tx, filenames):
         res = []
-        for filename in filenames:
+        for filename, title, url, details in filenames:
             txStr = ("MATCH (a: ObservedFile{filename: $filename})-[:Contains]->(b:ByteSet) "
-                     "CREATE (new:Dataset {uuid: apoc.create.uuid(), title:$title, owner:a.username, modified:$modified, desc:$desc, latest:1})-[r:Contains]->(b) "
+                     "CREATE (new:Dataset {uuid: apoc.create.uuid(), title:$title, owner:a.username, modified:$modified, desc:$desc, latest:1, details:$details})-[r:Contains]->(b) "
                      "RETURN new.uuid"
                     )
             result = tx.run(txStr,
                             filename = filename,
-                            title="Default Title",
-                            desc='Default Description',
+                            title=title,
+                            desc=details,
+                            details=url,
                             modified=time.time())
             res.extend([x[0] for x in result])
         return res
@@ -910,8 +911,8 @@ class GraphDB:
         rawTree = {}
         root, rootDatasets, fileInputCount, cloneCount, rawBytes = getQueryNode(rootUuid)
         rootContentStruct = self.getBytecontentStruct(rawBytes["md5hash"])
-        if root['optional_filetype'] == 'text/csv':
-            rootContentStruct['content'] = base64.b64decode(rootContentStruct['content']).decode(encoding='utf-8')
+        if root['optional_filetype'] == 'text/csv' and 'content' in rootContentStruct:
+           rootContentStruct['content'] = base64.b64decode(rootContentStruct['content']).decode(encoding='utf-8')
 
         rawTree[root["uuid"]] = {"name": "This File",
                            "kind": "FileObservation",
