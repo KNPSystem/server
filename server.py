@@ -450,6 +450,10 @@ class GraphDB:
                                   md5hash=md5)
             return [x[0] for x in results]
 
+    def removeDuplicateNodes(self):
+        with self.driver.session() as session:
+            results = session.run("MATCH (m:ByteSet)<-[:Contains]-(n:ObservedFile)<-[:NextVersion]-(:ObservedFile)-[:NextVersion]->(j:ObservedFile)-[:Contains]->(k:ByteSet) WHERE n.filename = j.filename AND m.md5hash = k.md5hash DETACH DELETE j,k")
+
     def getFileShinglePairs(self, shinglePairList):
         shingle_pairs = []
         isNew = 0
@@ -1122,6 +1126,7 @@ class GraphDB:
         # as simple as possible: basically a key/val store (with very big vals). All the
         # metadata should be maintained elsewhere.
         #
+        # self.removeDuplicateNodes() #Temporary solution for attempting to remove duplicate nodes
         for obs in observations:
             optionalItems = obs["optionalItems"]
 
@@ -1259,7 +1264,7 @@ class GraphDB:
 
         
         txStr = """MATCH (f_out: ObservedFile {username: $username})-[r_out:Contains]->(b_out:ByteSet)
-            WHERE b_out.md5hash IN $out_md5s AND f_out.filename IN $out_filenames
+            WHERE b_out.md5hash IN $out_md5s AND f_out.filename IN $out_filenames AND f_out.latest = 1
             MERGE (p:ObservedProcess {username: $username, threadid: $threadid, threadhour: $threadhour, hostname: $hostname})
             ON CREATE SET p.last_update = $last_update,
                           p.name = $name,
@@ -1284,6 +1289,7 @@ class GraphDB:
         #
         # Create a FileObservation and its ByteSet when there is no predecessor
         #
+        print(txStr)
         result = tx.run(txStr,
                         username = process["username"],
                         key = key,
@@ -1301,6 +1307,7 @@ class GraphDB:
                         install_id = process["install_id"],
                         knps_version = process["knps_version"],
                         hostname = process["hostname"])
+        print([record.data() for record in result])
 
     #
     # Add a new Dataset object to the store
