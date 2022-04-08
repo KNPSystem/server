@@ -2226,17 +2226,20 @@ def log():
         if len(bearer) == 2 and bearer[0] == 'Bearer':
             token = bearer[1]
 
-    log_data = json.loads(request.data.decode())
-    username = log_data.get('username', None)
-    if not username:
-        metadata = log_data.get('metadata', {'username': None})
-        username = metadata['username']
+    try:
+        log_data = json.loads(request.data.decode())
+        username = log_data.get('username', None)
+        if not username:
+            metadata = log_data.get('metadata', {'username': None})
+            username = metadata['username']
 
-    if not validate_bearer_token(username, token):
-        return {'status': f'bad auth token for user {username}'}, 401
+        if not validate_bearer_token(username, token):
+            return {'status': f'bad auth token for user {username}'}, 401
 
-    knps_logger.info(json.dumps(log_data))
-    return json.dumps({'status': 'success'})
+        knps_logger.info(json.dumps(log_data))
+        return json.dumps({'status': 'success'})
+    except:
+        return json.dumps({'status': 'failure'})
 
 if __name__ == '__main__':
     GDB = GraphDB("bolt://{}:{}".format(NEO4J_HOST, NEO4J_PORT), "neo4j", "password")
