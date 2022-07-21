@@ -40,6 +40,10 @@ from subgraph_classifier import apply_classifier
 
 from elasticsearch import Elasticsearch
 
+from pymongo import MongoClient
+client = MongoClient('mongodb://localhost:27017/knps')
+mongodb=client.knps
+
 # This is just a temporary thing for demos so we can all run off diferent indexes on the elsasticsearch server
 machine_id = uuid.UUID(int=uuid.getnode())
 
@@ -71,7 +75,7 @@ APP_STATE = 'ApplicationStateKNPS'
 NONCE = 'SampleNonceKNPS'
 
 NEO4J_HOST = os.getenv('NEO4J_HOST', 'localhost')
-NEO4J_PORT = int(os.getenv('NEO4J_PORT', '7687'))
+NEO4J_PORT = int(os.getenv('NEO4J_PORT', '7001'))
 KNPS_SERVER_HOST = os.getenv('KNPS_SERVER_HOST', 'localhost')
 KNPS_FLASK_HOST = os.getenv('KNPS_FLASK_HOST', 'localhost')
 KNPS_SERVER_PORT = int(os.getenv('KNPS_SERVER_PORT', '5000'))
@@ -1823,7 +1827,7 @@ def show_bytesetdata(md5):
     likelyCollaborations = GDB.findCollaborationsForByteset(md5)
 
     content = GDB.getBytecontentStruct(md5)
-    if 'text/csv' == (bytesetInfo['filetype']):
+    if 'text/csv' == (bytesetInfo['filetype']) and content and 'content' in content:
         content['content'] = base64.b64decode(content['content']).decode(encoding='utf-8')
 
     bytesetInfo["files"] = containingFiles
@@ -1868,6 +1872,307 @@ def show_knownlocationdata(fileid):
 
     return json.dumps(kl)
 
+def get_log_file_data(hash):
+    as_input = mongodb.logger.find({'inputs': {'$elemMatch': {'hash': hash}}})
+    as_output = mongodb.logger.find({'outputs': {'$elemMatch': {'hash': hash}}})
+
+    return as_input, as_output
+
+@app.route('/filelogdata/<hash>')
+def show_filelogdata(hash, show_outputs=False):
+    fileowners = set()
+    as_input, as_output = get_log_file_data(hash)
+
+    print("==================")
+    print(as_input)
+    print("-------------")
+    print(as_output)
+
+    inputs = []
+    action = None
+    fileid = None
+    reverse_dir = False
+
+    if not show_outputs:
+        for r in as_output:
+            for o in r['outputs']:
+                print("OUTPUT", o)
+                fileid = o['hash']
+                owner = r['metadata']['username']
+                filename = o.get('path', '')
+                if 'extra' in o:
+                    modified = o['extra'].get('modified', '')
+                    filetype = o['extra'].get('filetype', '')
+                else:
+                    modified = ''
+                    filetype = ''
+                synctime = r['metadata']['send_time']
+                prevId = ''
+                nextId = ''
+                isLatest = True
+                md5hash = hash
+
+            action_name = r['action']['type']
+            action_owner = owner
+            if action_name == 'JSONL_PARSE':
+                action_name = 'COMBINE_RECORDS'
+                action_owner = 'amanpreets@allenai.org'
+
+            for i in r['inputs']:
+                # print("INPUT", i)
+                ifilename = i.get('path', '')
+                if not ifilename:
+                    if 'extra' in i and 'pdf_uri' in i['extra'] and i['extra']['pdf_uri']:
+                        ifilename = json.loads(i['extra']['pdf_uri'])[0]
+                    elif 'extra' in i and 'oa_info' in i['extra'] and i['extra']['oa_info'] and 'open_access_url' in i['extra']['oa_info']:
+                        ifilename = i['extra']['oa_info']['open_access_url']
+
+
+                if not ifilename or ('.pdf' not in ifilename and '.json' not in ifilename and '.png' not in ifilename):
+                    continue
+
+                filetype = ''
+
+                if 'extra' in i:
+                    filetype = i['extra'].get('filetype', '')
+
+                if not filetype:
+                    if 'pdf' in ifilename:
+                        filetype = 'application/pdf'
+                    elif 'png' in ifilename:
+                        filetype = 'image/png'
+                    else:
+                        filetype = 'text/plain'
+
+                contents = None
+                # try:
+                LOCAL_DIR = os.getcwd()+'/content_files/'
+                fname = ifilename.split('/')[-1]
+                if 'pdf' not in fname:
+                    with open(LOCAL_DIR + fname) as f:
+                        if 'json' in fname:
+                            lines = []
+                            for line in f:
+                                lines.append(json.loads(line.strip()))
+                                contents = '\n'.join(json.dumps(x, indent=2) for x in lines[:2])
+                        elif '.png' in fname:
+                            contents = codecs.encode(open(LOCAL_DIR + fname, "rb").read(), "base64").decode("utf-8")
+                        else:
+                            contents.append(line.strip())
+
+                inputs.append({
+                    'children': [],
+                    'cloneCount': 1,
+                    'content': { 'hasContent': True , 'content': contents},
+                    'curatedSets': [],
+                    'depth': 0,
+                    'fileInputCount': 0,
+                    'filetype': filetype,
+                    'kind': 'FileObservation',
+                    'longName': ifilename,
+                    'md5hash': i['hash'],
+                    'name': i.get('path', i['hash']),
+                    'owner': action_owner,
+                    'rootNode': False,
+                    'shortName': ifilename.split('/')[-1],
+                    'uuid': i['hash'],
+                    'id': i['hash']
+                })
+
+            action = {
+                    'children': inputs[:8],
+                    'depth': 0,
+                    'fileInputCount': 0,
+                    'kind': 'ProcessObservation',
+                    'longName': action_name,
+                    'name': action_name,
+                    'owner': action_owner,
+                    'rootNode': False,
+                    'shortName': action_name,
+                    'startedOn': r['metadata']['message_start_time'],
+                    'uuid': r.get('message_id', 'NO_ID'),
+                    'id': r.get('message_id', 'NO_ID')
+                }
+
+            fileowners.add(owner)
+
+    if not fileid:
+        print("HERE")
+        reverse_dir = True
+        for r in as_input:
+            for i in r['inputs']:
+                if i['hash'] != hash:
+                    continue
+                print(i)
+                fileid = i['hash']
+                owner = r['metadata']['username']
+                filename = i.get('path', '')
+                if 'extra' in i:
+                    modified = i['extra'].get('modified', '')
+                    filetype = i['extra'].get('filetype', '')
+                else:
+                    modified = ''
+                    filetype = ''
+                synctime = r['metadata']['send_time']
+                prevId = ''
+                nextId = ''
+                isLatest = True
+                md5hash = hash
+
+                if not filename:
+                    if 'extra' in i and 'pdf_uri' in i['extra'] and i['extra']['pdf_uri']:
+                        filename = json.loads(i['extra']['pdf_uri'])[0]
+                    elif 'extra' in i and 'oa_info' in i['extra'] and i['extra']['oa_info'] and 'open_access_url' in i['extra']['oa_info']:
+                        filename = i['extra']['oa_info']['open_access_url']
+                    else:
+                        filename = i['hash']
+
+                filetype = ''
+
+                if not filetype:
+                    if 'pdf' in filename:
+                        filetype = 'application/pdf'
+                    elif 'png' in filename:
+                        filetype = 'image/png'
+                    else:
+                        filetype = 'text/plain'
+
+        action_name = r['action']['type']
+        action_owner = owner
+        if action_name == 'JSONL_PARSE':
+            action_name = 'COMBINE_RECORDS'
+            action_owner = 'amanpreets@allenai.org'
+
+        for i in r['outputs']:
+            if 'extra' in i:
+                modified = i['extra'].get('modified', '')
+                filetype = i['extra'].get('filetype', '')
+            else:
+                modified = ''
+                filetype = ''
+
+            inputs.append({
+                'children': [],
+                'cloneCount': 1,
+                'content': { 'hasContent': True, 'content': 'asdf', 'filetype': "text/plain" },
+                'curatedSets': [],
+                'depth': 0,
+                'fileInputCount': 0,
+                'filetype': filetype,
+                'kind': 'FileObservation',
+                'longName': i.get('path', i['hash']),
+                'md5hash': i['hash'],
+                'name': i.get('path', i['hash']),
+                'owner': action_owner,
+                'rootNode': False,
+                'shortName': i.get('path', i['hash']).split('/')[-1],
+                'uuid': i['hash'],
+                'id': i['hash']
+            })
+
+        action = {
+                'children': inputs[:6],
+                'depth': 0,
+                'fileInputCount': 0,
+                'kind': 'ProcessObservation',
+                'longName': action_name,
+                'name': action_name,
+                'owner': action_owner,
+                'rootNode': False,
+                'shortName': action_name,
+                'startedOn': r['metadata']['message_start_time'],
+                'uuid': r.get('message_id', ''),
+                'id': r.get('message_id', '')
+            }
+
+        fileowners.add(owner)
+
+    # fileId, owner, filename, modified, synctime, prevId, nextId, isLatest, md5hash = foundFile
+
+    if action:
+        children = [action]
+    else:
+        children = []
+
+    filetype = ''
+
+    if not filetype:
+        if 'pdf' in filename:
+            filetype = 'application/pdf'
+        elif 'png' in filename:
+            filetype = 'image/png'
+        else:
+            filetype = 'text/plain'
+
+
+    contents = None
+    try:
+        LOCAL_DIR = os.getcwd()+'/content_files/'
+        fname = filename.split('/')[-1]
+        with open(LOCAL_DIR + fname) as f:
+            if 'json' in fname:
+                lines = []
+                for line in f:
+                    lines.append(json.loads(line.strip()))
+                    contents = '\n'.join(json.dumps(x, indent=2) for x in lines[:2])
+            elif 'pdf' in fname:
+                pass
+            elif '.png' in fname:
+                contents = codecs.encode(open(LOCAL_DIR + fname, "rb").read(), "base64").decode("utf-8")
+
+            else:
+                contents.append(line.strip())
+    except:
+        pass
+
+
+    kl = {"id": fileid,
+          "owner": owner,
+          "filename": filename,
+          "modified": modified,
+          "synctime": synctime,
+          "prevId": str(prevId) if prevId else "",
+          "nextId": str(nextId) if nextId else "",
+          "rootNode": True,
+          "latest": isLatest,
+          "filetype": filetype,
+          "md5hash": md5hash}
+
+    kl['datasets'] = []
+    kl['subgraphs'] = []
+    kl['nearDuplicates'] = []
+    kl["descendentData"]  = {
+        'children': children,
+        'cloneCount': len(fileowners),
+        'content': { 'hasContent': True, 'content': contents},
+        'curatedSets': [],
+        'depth': 0,
+        'fileInputCount': 0,
+        'filetype': filetype,
+        'kind': 'FileObservation',
+        'longName': filename,
+        'md5hash': hash,
+        'name': filename,
+        'owner': owner,
+        'rootNode': True,
+        'shortName': filename.split('/')[-1],
+        'uuid': fileid,
+        'id': hash
+    }
+    kl['reverseDirection'] = reverse_dir
+    # nearbyFiles = GDB.findNearbyBytesetFiles(md5hash)
+    #
+    # kl["nearDuplicates"] = nearbyFiles
+    #
+    # kl["descendentData"] = GDB.getFileObservationHistoryGraphByUuid(fileid)
+    # print("Descendenats", len(kl["descendentData"]))
+    #
+    # kl["datasets"] = GDB.getDatasetInfoByContent(md5hash)
+    # kl['subgraphs'] = GDB.getSubgraphsForNode(fileid)
+
+    #x = GDB.getFileObservationHistoryGraph(filename, owner)
+
+    return json.dumps(kl)
 
 #
 # MANAGE DATASETS
