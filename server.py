@@ -1996,98 +1996,152 @@ def show_filelogdata(hash, show_outputs=False):
 
             fileowners.add(owner)
 
-    if not fileid:
-        print("HERE")
-        reverse_dir = True
-        for r in as_input:
-            for i in r['inputs']:
-                if i['hash'] != hash:
-                    continue
-                print(i)
-                fileid = i['hash']
-                owner = r['metadata']['username']
-                filename = i.get('path', '')
-                if 'extra' in i:
-                    modified = i['extra'].get('modified', '')
-                    filetype = i['extra'].get('filetype', '')
+    decendents_data = {}
+
+    if fileid:
+        if action:
+            children = [action]
+        else:
+            children = []
+
+        filetype = ''
+
+        if not filetype:
+            if 'pdf' in filename:
+                filetype = 'application/pdf'
+            elif 'png' in filename:
+                filetype = 'image/png'
+            else:
+                filetype = 'text/plain'
+
+        contents = None
+        try:
+            LOCAL_DIR = os.getcwd()+'/content_files/'
+            fname = filename.split('/')[-1]
+            with open(LOCAL_DIR + fname) as f:
+                if 'json' in fname:
+                    lines = []
+                    for line in f:
+                        lines.append(json.loads(line.strip()))
+                        contents = '\n'.join(json.dumps(x, indent=2) for x in lines[:2])
+                elif 'pdf' in fname:
+                    pass
+                elif '.png' in fname:
+                    contents = codecs.encode(open(LOCAL_DIR + fname, "rb").read(), "base64").decode("utf-8")
+
                 else:
-                    modified = ''
-                    filetype = ''
-                synctime = r['metadata']['send_time']
-                prevId = ''
-                nextId = ''
-                isLatest = True
-                md5hash = hash
+                    contents.append(line.strip())
+        except:
+            pass
 
-                if not filename:
-                    if 'extra' in i and 'pdf_uri' in i['extra'] and i['extra']['pdf_uri']:
-                        filename = json.loads(i['extra']['pdf_uri'])[0]
-                    elif 'extra' in i and 'oa_info' in i['extra'] and i['extra']['oa_info'] and 'open_access_url' in i['extra']['oa_info']:
-                        filename = i['extra']['oa_info']['open_access_url']
-                    else:
-                        filename = i['hash']
+        decendents_data = {
+            'children': children,
+            'cloneCount': len(fileowners),
+            'content': { 'hasContent': True, 'content': contents},
+            'curatedSets': [],
+            'depth': 0,
+            'fileInputCount': 0,
+            'filetype': filetype,
+            'kind': 'FileObservation',
+            'longName': filename,
+            'md5hash': hash,
+            'name': filename,
+            'owner': owner,
+            'rootNode': True,
+            'shortName': filename.split('/')[-1],
+            'uuid': fileid,
+            'id': hash
+        }
+    else:
+        reverse_dir = True
 
-                filetype = ''
-
-                if not filetype:
-                    if 'pdf' in filename:
-                        filetype = 'application/pdf'
-                    elif 'png' in filename:
-                        filetype = 'image/png'
-                    else:
-                        filetype = 'text/plain'
-
-        action_name = r['action']['type']
-        action_owner = owner
-        if action_name == 'JSONL_PARSE':
-            action_name = 'COMBINE_RECORDS'
-            action_owner = 'amanpreets@allenai.org'
-
-        for i in r['outputs']:
+    for r in as_input:
+        for i in r['inputs']:
+            if i['hash'] != hash:
+                continue
+            print(i)
+            fileid = i['hash']
+            owner = r['metadata']['username']
+            filename = i.get('path', '')
             if 'extra' in i:
                 modified = i['extra'].get('modified', '')
                 filetype = i['extra'].get('filetype', '')
             else:
                 modified = ''
                 filetype = ''
+            synctime = r['metadata']['send_time']
+            prevId = ''
+            nextId = ''
+            isLatest = True
+            md5hash = hash
 
-            inputs.append({
-                'children': [],
-                'cloneCount': 1,
-                'content': { 'hasContent': True, 'content': 'asdf', 'filetype': "text/plain" },
-                'curatedSets': [],
-                'depth': 0,
-                'fileInputCount': 0,
-                'filetype': filetype,
-                'kind': 'FileObservation',
-                'longName': i.get('path', i['hash']),
-                'md5hash': i['hash'],
-                'name': i.get('path', i['hash']),
-                'owner': action_owner,
-                'rootNode': False,
-                'shortName': i.get('path', i['hash']).split('/')[-1],
-                'uuid': i['hash'],
-                'id': i['hash']
-            })
+            if not filename:
+                if 'extra' in i and 'pdf_uri' in i['extra'] and i['extra']['pdf_uri']:
+                    filename = json.loads(i['extra']['pdf_uri'])[0]
+                elif 'extra' in i and 'oa_info' in i['extra'] and i['extra']['oa_info'] and 'open_access_url' in i['extra']['oa_info']:
+                    filename = i['extra']['oa_info']['open_access_url']
+                else:
+                    filename = i['hash']
 
-        action = {
-                'children': inputs[:6],
-                'depth': 0,
-                'fileInputCount': 0,
-                'kind': 'ProcessObservation',
-                'longName': action_name,
-                'name': action_name,
-                'owner': action_owner,
-                'rootNode': False,
-                'shortName': action_name,
-                'startedOn': r['metadata']['message_start_time'],
-                'uuid': r.get('message_id', ''),
-                'id': r.get('message_id', '')
-            }
+            filetype = ''
 
-        fileowners.add(owner)
+            if not filetype:
+                if 'pdf' in filename:
+                    filetype = 'application/pdf'
+                elif 'png' in filename:
+                    filetype = 'image/png'
+                else:
+                    filetype = 'text/plain'
 
-    # fileId, owner, filename, modified, synctime, prevId, nextId, isLatest, md5hash = foundFile
+    action_name = r['action']['type']
+    action_owner = owner
+    if action_name == 'JSONL_PARSE':
+        action_name = 'COMBINE_RECORDS'
+        action_owner = 'amanpreets@allenai.org'
+    inputs = []
+    for i in r['outputs']:
+        if 'extra' in i:
+            modified = i['extra'].get('modified', '')
+            filetype = i['extra'].get('filetype', '')
+        else:
+            modified = ''
+            filetype = ''
+
+        inputs.append({
+            'children': [],
+            'cloneCount': 1,
+            'content': { 'hasContent': True, 'content': 'asdf', 'filetype': "text/plain" },
+            'curatedSets': [],
+            'depth': 0,
+            'fileInputCount': 0,
+            'filetype': filetype,
+            'kind': 'FileObservation',
+            'longName': i.get('path', i['hash']),
+            'md5hash': i['hash'],
+            'name': i.get('path', i['hash']),
+            'owner': action_owner,
+            'rootNode': False,
+            'shortName': i.get('path', i['hash']).split('/')[-1],
+            'uuid': i['hash'],
+            'id': i['hash']
+        })
+
+    action = {
+            'children': inputs[:6],
+            'depth': 0,
+            'fileInputCount': 0,
+            'kind': 'ProcessObservation',
+            'longName': action_name,
+            'name': action_name,
+            'owner': action_owner,
+            'rootNode': False,
+            'shortName': action_name,
+            'startedOn': r['metadata']['message_start_time'],
+            'uuid': r.get('message_id', ''),
+            'id': r.get('message_id', '')
+        }
+
+    fileowners.add(owner)
 
     if action:
         children = [action]
@@ -2103,7 +2157,6 @@ def show_filelogdata(hash, show_outputs=False):
             filetype = 'image/png'
         else:
             filetype = 'text/plain'
-
 
     contents = None
     try:
@@ -2125,23 +2178,7 @@ def show_filelogdata(hash, show_outputs=False):
     except:
         pass
 
-
-    kl = {"id": fileid,
-          "owner": owner,
-          "filename": filename,
-          "modified": modified,
-          "synctime": synctime,
-          "prevId": str(prevId) if prevId else "",
-          "nextId": str(nextId) if nextId else "",
-          "rootNode": True,
-          "latest": isLatest,
-          "filetype": filetype,
-          "md5hash": md5hash}
-
-    kl['datasets'] = []
-    kl['subgraphs'] = []
-    kl['nearDuplicates'] = []
-    kl["descendentData"]  = {
+    forward_data = {
         'children': children,
         'cloneCount': len(fileowners),
         'content': { 'hasContent': True, 'content': contents},
@@ -2159,6 +2196,39 @@ def show_filelogdata(hash, show_outputs=False):
         'uuid': fileid,
         'id': hash
     }
+
+    if not decendents_data:
+        decendents_data = dict(forward_data)
+        forward_data = None
+    else:
+        decendents_data['forward'] = forward_data
+
+
+    # fileId, owner, filename, modified, synctime, prevId, nextId, isLatest, md5hash = foundFile
+
+
+
+
+
+
+
+    kl = {"id": fileid,
+          "owner": owner,
+          "filename": filename,
+          "modified": modified,
+          "synctime": synctime,
+          "prevId": str(prevId) if prevId else "",
+          "nextId": str(nextId) if nextId else "",
+          "rootNode": True,
+          "latest": isLatest,
+          "filetype": filetype,
+          "md5hash": md5hash}
+
+    kl['datasets'] = []
+    kl['subgraphs'] = []
+    kl['nearDuplicates'] = []
+    kl["descendentData"]  = decendents_data
+    kl['forwardData'] = forward_data
     kl['reverseDirection'] = reverse_dir
     # nearbyFiles = GDB.findNearbyBytesetFiles(md5hash)
     #
