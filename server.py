@@ -2030,7 +2030,10 @@ def show_filelogdata(hash, show_outputs=False):
                     contents = codecs.encode(open(LOCAL_DIR + fname, "rb").read(), "base64").decode("utf-8")
 
                 else:
-                    contents.append(line.strip())
+                    lines = []
+                    for line in f:
+                        lines.append(line.strip())
+                    contents = '\n'.join(lines)
         except:
             pass
 
@@ -2055,11 +2058,20 @@ def show_filelogdata(hash, show_outputs=False):
     else:
         reverse_dir = True
 
+    children = []
     for r in as_input:
+        action_name = r['action']['type']
+        action_owner = owner
+        if action_name == 'JSONL_PARSE':
+            action_name = 'COMBINE_RECORDS'
+            action_owner = 'amanpreets@allenai.org'
+
+        if action_name == 'FILE_MODIFIED':
+            continue
+
         for i in r['inputs']:
             if i['hash'] != hash:
                 continue
-            print(i)
             fileid = i['hash']
             owner = r['metadata']['username']
             filename = i.get('path', '')
@@ -2093,60 +2105,98 @@ def show_filelogdata(hash, show_outputs=False):
                 else:
                     filetype = 'text/plain'
 
-    action_name = r['action']['type']
-    action_owner = owner
-    if action_name == 'JSONL_PARSE':
-        action_name = 'COMBINE_RECORDS'
-        action_owner = 'amanpreets@allenai.org'
-    inputs = []
-    for i in r['outputs']:
-        if 'extra' in i:
-            modified = i['extra'].get('modified', '')
-            filetype = i['extra'].get('filetype', '')
-        else:
-            modified = ''
+        action_name = r['action']['type']
+        action_owner = owner
+        if action_name == 'JSONL_PARSE':
+            action_name = 'COMBINE_RECORDS'
+            action_owner = 'amanpreets@allenai.org'
+
+        inputs = []
+        for i in r.get('outputs', []):
+            if 'extra' in i:
+                modified = i['extra'].get('modified', '')
+                filetype = i['extra'].get('filetype', '')
+            else:
+                modified = ''
+                filetype = ''
+
+            ifilename = i.get('path', '')
+            if not ifilename:
+                if 'extra' in i and 'pdf_uri' in i['extra'] and i['extra']['pdf_uri']:
+                    ifilename = json.loads(i['extra']['pdf_uri'])[0]
+                elif 'extra' in i and 'oa_info' in i['extra'] and i['extra']['oa_info'] and 'open_access_url' in i['extra']['oa_info']:
+                    ifilename = i['extra']['oa_info']['open_access_url']
+
             filetype = ''
+            filename = ifilename
+            if not filetype:
+                if 'pdf' in filename:
+                    filetype = 'application/pdf'
+                elif 'png' in filename:
+                    filetype = 'image/png'
+                else:
+                    filetype = 'text/plain'
 
-        inputs.append({
-            'children': [],
-            'cloneCount': 1,
-            'content': { 'hasContent': True, 'content': 'asdf', 'filetype': "text/plain" },
-            'curatedSets': [],
-            'depth': 0,
-            'fileInputCount': 0,
-            'filetype': filetype,
-            'kind': 'FileObservation',
-            'longName': i.get('path', i['hash']),
-            'md5hash': i['hash'],
-            'name': i.get('path', i['hash']),
-            'owner': action_owner,
-            'rootNode': False,
-            'shortName': i.get('path', i['hash']).split('/')[-1],
-            'uuid': i['hash'],
-            'id': i['hash']
-        })
+            contents = None
+            try:
+                LOCAL_DIR = os.getcwd()+'/content_files/'
+                fname = filename.split('/')[-1]
+                with open(LOCAL_DIR + fname) as f:
+                    if 'json' in fname:
+                        lines = []
+                        for line in f:
+                            lines.append(json.loads(line.strip()))
+                            contents = '\n'.join(json.dumps(x, indent=2) for x in lines[:2])
+                    elif 'pdf' in fname:
+                        pass
+                    elif '.png' in fname:
+                        contents = codecs.encode(open(LOCAL_DIR + fname, "rb").read(), "base64").decode("utf-8")
 
-    action = {
-            'children': inputs[:6],
-            'depth': 0,
-            'fileInputCount': 0,
-            'kind': 'ProcessObservation',
-            'longName': action_name,
-            'name': action_name,
-            'owner': action_owner,
-            'rootNode': False,
-            'shortName': action_name,
-            'startedOn': r['metadata']['message_start_time'],
-            'uuid': r.get('message_id', ''),
-            'id': r.get('message_id', '')
-        }
+                    else:
+                        lines = []
+                        for line in f:
+                            lines.append(line.strip())
+                        contents = '\n'.join(lines)
+            except:
+                pass
+
+            inputs.append({
+                'children': [],
+                'cloneCount': 1,
+                'content': { 'hasContent': True, 'content': contents},
+                'curatedSets': [],
+                'depth': 0,
+                'fileInputCount': 0,
+                'filetype': filetype,
+                'kind': 'FileObservation',
+                'longName': i.get('path', i['hash']),
+                'md5hash': i['hash'],
+                'name': i.get('path', i['hash']),
+                'owner': action_owner,
+                'rootNode': False,
+                'shortName': i.get('path', i['hash']).split('/')[-1],
+                'uuid': i['hash'],
+                'id': i['hash']
+            })
+
+        action = {
+                'children': inputs[:6],
+                'depth': 0,
+                'fileInputCount': 0,
+                'kind': 'ProcessObservation',
+                'longName': action_name,
+                'name': action_name,
+                'owner': action_owner,
+                'rootNode': False,
+                'shortName': action_name,
+                'startedOn': r['metadata']['message_start_time'],
+                'uuid': r.get('message_id', ''),
+                'id': r.get('message_id', '')
+            }
+        children.append(action)
 
     fileowners.add(owner)
 
-    if action:
-        children = [action]
-    else:
-        children = []
 
     filetype = ''
 
