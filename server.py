@@ -2128,11 +2128,10 @@ def show_filelogdata(hash, show_outputs=False):
                     ifilename = i['extra']['oa_info']['open_access_url']
 
             filetype = ''
-            filename = ifilename
             if not filetype:
-                if 'pdf' in filename:
+                if 'pdf' in ifilename:
                     filetype = 'application/pdf'
-                elif 'png' in filename:
+                elif 'png' in ifilename:
                     filetype = 'image/png'
                 else:
                     filetype = 'text/plain'
@@ -2140,7 +2139,7 @@ def show_filelogdata(hash, show_outputs=False):
             contents = None
             try:
                 LOCAL_DIR = os.getcwd()+'/content_files/'
-                fname = filename.split('/')[-1]
+                fname = ifilename.split('/')[-1]
                 with open(LOCAL_DIR + fname) as f:
                     if 'json' in fname:
                         lines = []
